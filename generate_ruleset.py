@@ -1,14 +1,8 @@
 #!/usr/bin/env python
-
-import os.path
-import sys
 import tempfile
-from collections import namedtuple
-
 from git import Repo
 import xml.etree.ElementTree as ET
 import re
-
 import os
 
 
@@ -26,32 +20,9 @@ class cd:
         os.chdir(self.saved_path)
 
 
-RuleCategory = namedtuple('RuleCategory', 'name rules')
-
-
 def namespace(element):
     m = re.match(r'{(.*)}', element.tag)
     return m.group(1) if m else ''
-
-
-def git_rules(url, *category_files):
-    with tempfile.TemporaryDirectory() as tempdir:
-        Repo.clone_from(url, tempdir, depth=1, branch='pmd_releases/6.42.0')
-        result = []
-        with cd(tempdir):
-            for category_file in category_files:
-                tree = ET.parse(category_file)
-                ns = namespace(tree.getroot())
-                rules = tree.getroot().findall(f'{{{ns}}}rule')
-
-                result.append(
-                    RuleCategory(
-                        name=os.path.basename(category_file),
-                        rules=[rule.attrib['name'] for rule in rules]
-                    )
-                )
-
-            return result
 
 
 def clone_branch(url, to_path, branch_name, **kwargs):
@@ -69,16 +40,26 @@ def remove_all(tag_name, tree):
         parent[rule].remove(rule)
 
 
-def rules(category_file):
+def rule_names(category_file):
     tree = ET.parse(category_file)
     ns = namespace(tree.getroot())
     rules = tree.getroot().findall(f'{{{ns}}}rule')
     return [rule.attrib['name'] for rule in rules]
 
 
+def create_output_tree(file):
+    tree = ET.parse(file)
+    rule_tag_name = f'{{{namespace(tree.getroot())}}}rule'
+    remove_all(rule_tag_name, tree)
+    return tree
+
+
 def main():
     with tempfile.TemporaryDirectory() as tempdir:
-        clone_branch('https://github.com/pmd/pmd.git', tempdir, 'pmd_releases/6.42.0', depth=1)
+        repo_url = 'https://github.com/pmd/pmd.git'
+        print(f"Cloning {repo_url}...")
+
+        clone_branch(repo_url, tempdir, 'pmd_releases/6.42.0', depth=1)
         files = [f'{tempdir}/{path}' for path in [
             'pmd-java/src/main/resources/category/java/design.xml',
             'pmd-java/src/main/resources/category/java/multithreading.xml',
@@ -90,27 +71,29 @@ def main():
             'pmd-java/src/main/resources/category/java/security.xml',
         ]]
 
+        print("Creating template XML tree...")
         tree = create_output_tree(files[0])
 
         ET.register_namespace('', namespace(tree.getroot()))
 
+        print("Adding rules and excusions...")
         for file in files:
             rule_elm = ET.SubElement(tree.getroot(), 'rule')
             rule_elm.attrib['ref'] = category_path(file)
 
-            for rule in rules(file):
+            for rule in rule_names(file):
                 exclude_elm = ET.SubElement(rule_elm, 'exclude')
                 exclude_elm.attrib['name'] = rule
 
+        print("Pretty printing...")
         ET.indent(tree, '    ', 0)
-        tree.write('ruleset.xml')
 
+        output_file = 'ruleset.xml'
 
-def create_output_tree(file):
-    tree = ET.parse(file)
-    rule_tag_name = f'{{{namespace(tree.getroot())}}}rule'
-    remove_all(rule_tag_name, tree)
-    return tree
+        print(f"Writing to file {output_file}...")
+        tree.write(output_file)
+
+        print("Done!")
 
 
 if __name__ == '__main__':
