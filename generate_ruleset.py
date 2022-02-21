@@ -76,7 +76,7 @@ def main():
 
         ET.register_namespace('', namespace(tree.getroot()))
 
-        print("Adding rules and excusions...")
+        print("Adding rules and exclusions...")
         for file in files:
             rule_elm = ET.SubElement(tree.getroot(), 'rule')
             rule_elm.attrib['ref'] = category_path(file)
